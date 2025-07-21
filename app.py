@@ -3,26 +3,43 @@ import requests
 from bs4 import BeautifulSoup
 import os
 
-# 🔐 Groq API Key setup
+# --- Configure the page ---
+st.set_page_config(page_title="Chatbot Widget", layout="centered", page_icon="💬")
+# Inject CSS to mimic a small chatbot widget for iframe use.
+st.markdown("""
+    <style>
+      /* Remove padding and set a maximum width so the widget stays compact */
+      .reportview-container .main .block-container {
+          padding: 0rem;
+          max-width: 320px;
+      }
+      body {
+          background-color: transparent;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- Hardcoded Website Settings ---
+STATIC_WEBSITE_URL = "https://shaukatkhanum.org.pk/"  # Replace with your target website
+
+# --- Groq API Settings ---
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", "")
-GROQ_MODEL = "llama3-70b-8192"
+GROQ_MODEL = "llama3-70b-8192"  # Change to your preferred Groq-supported model if needed
 
-# 🌐 Hardcoded Website URL
-STATIC_WEBSITE_URL = "https://shaukatkhanum.org.pk/"  # ← Replace with your real site
-
-# 🧹 Extract website text
+# --- Function to scrape and clean website content ---
 def extract_text_from_url(url):
     try:
         response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
+        # Remove unwanted elements
         for tag in soup(['script', 'style', 'noscript']):
             tag.decompose()
         text = ' '.join(soup.stripped_strings)
-        return text[:4000]
+        return text[:4000]  # Trim to limit prompt size
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error fetching content: {e}"
 
-# 🧠 Query Groq API
+# --- Function to query the Groq API ---
 def query_groq(prompt):
     try:
         headers = {
@@ -31,68 +48,41 @@ def query_groq(prompt):
         }
         payload = {
             "model": GROQ_MODEL,
-            "messages": [{"role": "user", "content": prompt}]
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
         }
-        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+        response = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                                 headers=headers, json=payload)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+        return response.json()['choices'][0]['message']['content'].strip()
     except Exception as e:
-        return f"Error from Groq API: {e}"
+        return f"Error querying Groq: {e}"
 
-# 🔁 Auto-refresh website content every 3 hours
-@st.cache_data(ttl=10800)
+# --- Cache website content and auto-refresh every 3 hours (10800 seconds) ---
+@st.cache_data(ttl=10800, show_spinner=False)
 def get_static_site_content():
     return extract_text_from_url(STATIC_WEBSITE_URL)
 
-# 🎨 CSS for floating chatbot
-st.markdown("""
-    <style>
-    .chatbox {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        width: 350px;
-        max-height: 600px;
-        background-color: #f9f9f9;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        padding: 15px;
-        z-index: 9999;
-        overflow-y: auto;
-    }
-    .chatbox h4 {
-        margin-top: 0;
-        text-align: center;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- Chat Widget UI ---
+st.markdown("### 💬 Chatbot")
+st.markdown(f"**Website:** `{STATIC_WEBSITE_URL}`")
 
-# 🧱 Layout using HTML
-st.markdown('<div class="chatbox">', unsafe_allow_html=True)
-st.markdown("### 🤖 Website Chatbot")
+# Input field for asking a question about the website
+question = st.text_input("Ask a question about the website:")
 
-st.markdown(f"<sub>Site: <i>{STATIC_WEBSITE_URL}</i></sub>", unsafe_allow_html=True)
-
-# 🔁 Manual refresh button
-if st.button("🔄 Refresh Site Content"):
-    st.cache_data.clear()
-    st.info("Website content will refresh on next message.")
-
-# Chat input
-question = st.text_input("Ask something about the website:")
-
-if question and st.button("Ask"):
+if st.button("Send"):
     if not GROQ_API_KEY:
-        st.error("Groq API Key is missing. Set it using environment variable or secrets.")
+        st.error("Missing Groq API Key. Please set it via an environment variable or in Streamlit secrets.")
+    elif not question.strip():
+        st.warning("Please enter a question.")
     else:
         with st.spinner("Thinking..."):
             context = get_static_site_content()
             if context.startswith("Error"):
                 st.error(context)
             else:
-                prompt = f"The following is the content of the website:\n\n{context}\n\nQuestion: {question}\nAnswer:"
+                prompt = f"Content from the website:\n\n{context}\n\nQuestion: {question}\nAnswer:"
                 answer = query_groq(prompt)
-                st.success("Answer:")
-                st.markdown(answer)
-
-st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("**Answer:**")
+                st.write(answer)
